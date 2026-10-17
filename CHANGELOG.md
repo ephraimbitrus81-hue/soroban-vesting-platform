@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 2026-10-17
+
+- contracts/vesting/src/lib.rs: consolidate duplicate test setup helpers into
+  `mod test_helpers` (#115). Previously each of the three test modules
+  (`tests`, `e2e_token_tests`, `prop_tests`) defined its own private helpers
+  (`setup`, `new_token`, `deploy_token`, `deploy_vesting`, `dummy`). These are
+  now unified in a single `#[cfg(test)] pub(crate) mod test_helpers` at the
+  bottom of the file with clearly named functions: `deploy_vesting_with_admin`,
+  `deploy_stellar_asset_token`, `deploy_real_token`, `dummy`. All three test
+  modules import from `test_helpers`. No test logic changed; all 45 existing
+  tests continue to pass.
+
 ### Added — 2026-10-17
 
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).

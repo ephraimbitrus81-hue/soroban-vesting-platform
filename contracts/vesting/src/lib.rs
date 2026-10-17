@@ -698,8 +698,9 @@ impl VestingContract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{deploy_stellar_asset_token, deploy_vesting_with_admin};
     use soroban_sdk::testutils::{Address as _, Events, Ledger};
-    use soroban_sdk::{token::StellarAssetClient, Env};
+    use soroban_sdk::Env;
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -711,23 +712,15 @@ mod tests {
         let beneficiary = Address::generate(&env);
         let funder = Address::generate(&env);
 
-        let token_id = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_address = token_id.address();
-
-        let asset_client = StellarAssetClient::new(&env, &token_address);
-        asset_client.mint(&funder, &1_000_000);
-
-        let vesting_id = env.register(VestingContract, (admin.clone(),));
+        let token_address = deploy_stellar_asset_token(&env, &funder, 1_000_000);
+        let vesting_id = deploy_vesting_with_admin(&env, &admin);
 
         (env, vesting_id, admin, beneficiary, funder)
     }
 
     /// Deploy a fresh token, mint `amount` to `funder`, return token address.
     fn new_token(env: &Env, funder: &Address, amount: i128) -> Address {
-        let token_id = env.register_stellar_asset_contract_v2(funder.clone());
-        let addr = token_id.address();
-        StellarAssetClient::new(env, &addr).mint(funder, &amount);
-        addr
+        deploy_stellar_asset_token(env, funder, amount)
     }
 
     // ── constructor ──────────────────────────────────────────────────────────
@@ -2624,10 +2617,10 @@ mod tests {
 #[cfg(test)]
 mod e2e_token_tests {
     use super::*;
-    use ::token::{TokenContract, TokenContractClient};
+    use crate::test_helpers::{deploy_real_token, deploy_vesting_with_admin};
     use soroban_sdk::{
         testutils::{Address as _, Ledger},
-        Env, String,
+        Env,
     };
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -2638,24 +2631,13 @@ mod e2e_token_tests {
         env: &'a Env,
         admin: &Address,
         supply: i128,
-    ) -> (Address, TokenContractClient<'a>) {
-        let token_id = env.register(
-            TokenContract,
-            (
-                admin.clone(),
-                String::from_str(env, "Test Token"),
-                String::from_str(env, "TT"),
-                7u32,
-                supply,
-            ),
-        );
-        let token = TokenContractClient::new(env, &token_id);
-        (token_id, token)
+    ) -> (Address, ::token::TokenContractClient<'a>) {
+        deploy_real_token(env, admin, supply)
     }
 
     /// Deploy vesting with `admin` via constructor and return client.
     fn deploy_vesting<'a>(env: &'a Env, admin: &Address) -> (Address, VestingContractClient<'a>) {
-        let id = env.register(VestingContract, (admin.clone(),));
+        let id = deploy_vesting_with_admin(env, admin);
         let v = VestingContractClient::new(env, &id);
         (id, v)
     }
@@ -2970,30 +2952,10 @@ mod e2e_token_tests {
 #[cfg(test)]
 mod prop_tests {
     use super::*;
+    use crate::test_helpers::dummy;
     use proptest::prelude::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::Env;
 
-    /// Build a dummy schedule for pure-math tests (no Env interaction needed).
-    fn dummy(
-        total_amount: i128,
-        start_time: u64,
-        cliff_duration: u64,
-        total_duration: u64,
-    ) -> VestingSchedule {
-        let env = Env::default();
-        VestingSchedule {
-            id: 1,
-            beneficiary: soroban_sdk::Address::generate(&env),
-            token: soroban_sdk::Address::generate(&env),
-            total_amount,
-            claimed_amount: 0,
-            start_time,
-            cliff_duration,
-            total_duration,
-            status: ScheduleStatus::Active,
-        }
-    }
+    // dummy() is imported from test_helpers for pure-math tests.
 
     proptest! {
         /// P1 & P2: vested(t) is non-decreasing and never exceeds total_amount.
@@ -3062,6 +3024,85 @@ mod prop_tests {
             let sched = dummy(total_amount, start_time, 0, total_duration);
             let v = VestingContract::vested_amount(&sched, t);
             prop_assert_eq!(v, total_amount, "expected total={} at t={} (end={})", total_amount, t, end);
+        }
+    }
+}
+
+// ─── Shared test helpers ──────────────────────────────────────────────────────
+//
+// Consolidated test setup utilities used by all three test modules:
+//   `tests`, `e2e_token_tests`, and `prop_tests`.
+//
+// Having a single source of truth here means that adding a new test module
+// only requires importing the helpers it needs rather than re-implementing
+// them.
+
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use super::*;
+    use ::token::{TokenContract, TokenContractClient};
+    use soroban_sdk::{
+        testutils::Address as _,
+        token::StellarAssetClient,
+        Env, String,
+    };
+
+    /// Deploy a `VestingContract` with `admin` and return its contract address.
+    pub fn deploy_vesting_with_admin(env: &Env, admin: &Address) -> Address {
+        env.register(VestingContract, (admin.clone(),))
+    }
+
+    /// Register a `StellarAssetContract` with `funder` as the admin, mint
+    /// `amount` to `funder`, and return the token contract address.
+    pub fn deploy_stellar_asset_token(env: &Env, funder: &Address, amount: i128) -> Address {
+        let token_id = env.register_stellar_asset_contract_v2(funder.clone());
+        let addr = token_id.address();
+        StellarAssetClient::new(env, &addr).mint(funder, &amount);
+        addr
+    }
+
+    /// Deploy the real `TokenContract` (dev-dependency) with `supply` minted
+    /// to `admin` and return `(token_address, TokenContractClient)`.
+    pub fn deploy_real_token<'a>(
+        env: &'a Env,
+        admin: &Address,
+        supply: i128,
+    ) -> (Address, TokenContractClient<'a>) {
+        let token_id = env.register(
+            TokenContract,
+            (
+                admin.clone(),
+                String::from_str(env, "Test Token"),
+                String::from_str(env, "TT"),
+                7u32,
+                supply,
+            ),
+        );
+        let token = TokenContractClient::new(env, &token_id);
+        (token_id, token)
+    }
+
+    /// Build a minimal `VestingSchedule` for pure-math tests.
+    ///
+    /// Uses throw-away `Env` instances only to satisfy the `Address` type
+    /// requirement; no ledger interaction occurs.
+    pub fn dummy(
+        total_amount: i128,
+        start_time: u64,
+        cliff_duration: u64,
+        total_duration: u64,
+    ) -> VestingSchedule {
+        let env = Env::default();
+        VestingSchedule {
+            id: 1,
+            beneficiary: Address::generate(&env),
+            token: Address::generate(&env),
+            total_amount,
+            claimed_amount: 0,
+            start_time,
+            cliff_duration,
+            total_duration,
+            status: ScheduleStatus::Active,
         }
     }
 }
