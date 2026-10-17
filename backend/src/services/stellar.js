@@ -7,7 +7,7 @@
  * All functions return { success, data } or throw with a descriptive message.
  */
 
-const { SorobanRpc, Keypair, Networks, TransactionBuilder, BASE_FEE } = require('@stellar/stellar-sdk');
+const { SorobanRpc, Networks, TransactionBuilder, BASE_FEE } = require('@stellar/stellar-sdk');
 
 const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === 'mainnet'
   ? Networks.PUBLIC

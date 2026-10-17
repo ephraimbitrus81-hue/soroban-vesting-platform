@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 2026-10-17
+
+- backend/src/services/stellar.js: removed unused `Keypair` import (#80).
+  `Keypair` was destructured from `@stellar/stellar-sdk` on line 10 but never
+  referenced anywhere in the file, causing an ESLint `no-unused-vars` warning
+  in CI. Removed from the destructured import. All 70 backend tests pass;
+  `npm run lint` reports zero warnings for `stellar.js`.
+
 ### Added — 2026-10-17
 
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
