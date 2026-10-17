@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-17
 
+- contracts/vesting/src/lib.rs: `time_until_fully_vested(env, schedule_id) -> u64`
+  view function (#127). Returns `(start_time + total_duration).saturating_sub(now)`
+  — the number of seconds remaining until the schedule fully vests. Returns `0`
+  when the schedule has already reached or passed its end time. Useful for
+  client-side countdown timers and dashboards that need "time remaining" without
+  off-chain arithmetic. Read-only: no TTL bump. Four new tests:
+  `test_time_until_fully_vested_mid_schedule` (positive value before end),
+  `test_time_until_fully_vested_at_end` (0 at exactly `total_duration`),
+  `test_time_until_fully_vested_after_end` (0 past end),
+  `test_time_until_fully_vested_not_found_panics` (panics for unknown ID).
+  README Vesting API table updated.
+
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
   Documents every `panic_with_error!` call in the vesting contract source with
   the function name, `VestingError` variant, numeric error code, and the

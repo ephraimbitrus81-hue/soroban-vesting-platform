@@ -292,6 +292,7 @@ create_schedule(params)
 | `get_claimable(id)` | — | Read-only: claimable amount now |
 | `get_beneficiary_schedules(beneficiary)` | — | Read-only: schedule IDs for an address |
 | `schedule_count()` / `get_admin()` / `is_paused()` | — | Read-only state queries |
+| `time_until_fully_vested(id)` | — | Read-only: seconds remaining until schedule fully vests; 0 if already complete |
 
 ### Multisig
 

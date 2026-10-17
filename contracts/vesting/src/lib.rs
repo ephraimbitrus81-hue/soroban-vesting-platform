@@ -527,6 +527,33 @@ impl VestingContract {
         (schedule.total_amount - vested).max(0)
     }
 
+    /// Return the number of seconds remaining until a schedule is fully vested.
+    ///
+    /// Computes `(start_time + total_duration).saturating_sub(now)` where `now`
+    /// is the current ledger timestamp.  Returns `0` once the schedule has
+    /// reached or passed its end time.
+    ///
+    /// Useful for client-side countdown timers and dashboards that display
+    /// "time remaining" without requiring off-chain arithmetic.
+    ///
+    /// Read-only — does **not** bump the instance or persistent TTL.
+    ///
+    /// # Auth
+    /// None.
+    ///
+    /// # Panics
+    /// - [`VestingError::ScheduleNotFound`] — schedule ID does not exist.
+    pub fn time_until_fully_vested(env: Env, schedule_id: u64) -> u64 {
+        let schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+        let end = schedule.start_time.saturating_add(schedule.total_duration);
+        let now = env.ledger().timestamp();
+        end.saturating_sub(now)
+    }
+
     /// Return `true` if a schedule with the given ID exists in storage,
     /// `false` otherwise.
     ///
@@ -2605,6 +2632,97 @@ mod tests {
             cliff_duration: u64::MAX - 1,
             total_duration: u64::MAX - 1,
         });
+    }
+
+    // ── time_until_fully_vested (#127) ────────────────────────────────────────
+
+    /// Returns a positive value mid-schedule.
+    #[test]
+    fn test_time_until_fully_vested_mid_schedule() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 200,
+        });
+
+        // At t = start + 50: 150 seconds remain.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(
+            vesting.time_until_fully_vested(&id),
+            150,
+            "expected 150 seconds remaining mid-schedule"
+        );
+    }
+
+    /// Returns 0 exactly at total_duration.
+    #[test]
+    fn test_time_until_fully_vested_at_end() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        assert_eq!(
+            vesting.time_until_fully_vested(&id),
+            0,
+            "expected 0 at exactly total_duration"
+        );
+    }
+
+    /// Returns 0 after total_duration (schedule already completed).
+    #[test]
+    fn test_time_until_fully_vested_after_end() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Well past the end.
+        env.ledger().with_mut(|l| l.timestamp = start + 500);
+        assert_eq!(
+            vesting.time_until_fully_vested(&id),
+            0,
+            "expected 0 after schedule end"
+        );
+    }
+
+    /// Panics for a non-existent schedule ID.
+    #[test]
+    #[should_panic]
+    fn test_time_until_fully_vested_not_found_panics() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.time_until_fully_vested(&999u64);
     }
 }
 
